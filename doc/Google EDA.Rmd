@@ -1,0 +1,331 @@
+---
+title: "Google Revenue"
+author: "Runjie Lyu"
+date: "April 9, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# ```{r}
+#  if (!require(c("data.table", "jsonlite", "readr", "dplyr", "tidyr","magrittr","lubridate","purrr","ggplot2","gridExtra","countrycode","highcharter","ggExtra","skimr","ggthemes","cowplot","scales"))) install.packages(c("data.table", "jsonlite", "readr", "dplyr", "tidyr","magrittr","lubridate","purrr","ggplot2","gridExtra","countrycode","highcharter","ggExtra","skimr","ggthemes","cowplot","scales"))
+# ```
+
+## R Markdown
+library
+```{r}
+library(data.table)
+library(jsonlite)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(magrittr)
+library(lubridate)
+library(purrr)
+library(ggplot2)
+library(gridExtra)
+library(countrycode)
+library(highcharter)
+library(ggExtra)
+library(skimr)
+library(cowplot)
+library(ggthemes)
+library(scales)
+```
+
+Read Data
+
+```{r}
+gtrain <- read_csv("../data/train.min.csv")
+gtest <- read_csv("../data/test.min.csv")
+```
+
+Data Preprocessing
+convert date column from numeric to data class
+```{r}
+gtrain$date <- as.Date(as.character(gtrain$date), format='%Y%m%d')
+
+# convert visitStartTime to POSIXct
+gtrain$visitStartTime <- as_datetime(gtrain$visitStartTime)
+```
+
+str() and summary()
+```{r}
+summary(gtrain)
+str(gtrain)
+```
+
+Missing Values
+```{r}
+options(repr.plot.height=4)
+NAcol <- which(colSums(is.na(gtrain)) > 0)
+NAcount <- sort(colSums(sapply(gtrain[NAcol], is.na)), decreasing = TRUE)
+NADF <- data.frame(variable=names(NAcount), missing=NAcount)
+NADF$PctMissing <- round(((NADF$missing/nrow(gtrain))*100),1)
+NADF %>%
+    ggplot(aes(x=reorder(variable, PctMissing), y=PctMissing)) +
+    geom_bar(stat='identity', fill='lightblue') + coord_flip(y=c(0,120)) +
+    labs(x="", y="Percent of missing value") +
+    geom_text(aes(label=paste0(NADF$PctMissing, "%"), hjust=-0.1))
+```
+
+Data Exploration
+```{r}
+time_range <- range(gtrain$date)
+print(time_range)
+```
+
+transaction revenue
+```{r}
+rev_range <- round(range(gtrain$transactionRevenue, na.rm=TRUE), 2)
+print(rev_range)
+```
+
+```{r}
+summary(gtrain$transactionRevenue)
+```
+
+```{r}
+gtrain %>% 
+  ggplot(aes(x=transactionRevenue, y=..density..)) + 
+  geom_histogram(fill='lightblue', na.rm=TRUE, bins=40) + 
+  geom_density(aes(x=transactionRevenue), fill='red', color='red', alpha=0.2, na.rm=TRUE) + 
+  labs(
+    title = 'Distribution of transaction revenue',
+    x = 'Natural log of transaction revenue'
+  )
+```
+
+```{r}
+revenue <- gtrain$transactionRevenue
+revenue[is.na(revenue)] <- 0
+summary(revenue)
+```
+
+```{r}
+date_wise <- gtrain  %>% 
+group_by(date)  %>% 
+summarise(daily_visits = sum(visits, na.rm = TRUE),
+daily_hits = sum(hits, na.rm = TRUE),
+daily_pageviews = sum(pageviews, na.rm = TRUE),
+daily_bounces = sum(bounces, na.rm = TRUE),
+daily_newVisits = sum(newVisits, na.rm = TRUE),
+daily_transactionRevenue = sum(transactionRevenue, na.rm =TRUE)
+         )
+```
+
+```{r}
+ggplot(date_wise,aes(date,daily_visits)) + geom_line() +
+theme_economist(dkpanel=TRUE) +
+labs(title = "Time Series of Daily Visits",
+    x = "Date",
+    y = "Daily Visits") +
+geom_smooth() -> p1
+```
+
+```{r}
+ggplot(date_wise,aes(date,daily_hits)) + geom_line() +
+theme_economist(dkpanel=TRUE) +
+labs(title = "Time Series of Daily Hits",
+    x = "Date",
+    y = "Daily Hits") +
+geom_smooth() -> p2
+```
+
+```{r}
+ggplot(date_wise,aes(date,daily_newVisits)) + geom_line() +
+theme_economist(dkpanel=TRUE) +
+labs(title = "Time Series Daily new Visits",
+    x = "Date",
+    y = "Daily new Visits") +
+geom_smooth() -> p3
+```
+
+```{r}
+ggplot(date_wise,aes(date,daily_bounces)) + geom_line() +
+theme_economist() +
+labs(title = "Daily Bounces Trend",
+    x = "Date",
+    y = "Daily Bounces") +
+geom_smooth() -> p4
+```
+
+```{r}
+plot_grid(p1,p2,p3,p4, ncol = 2)
+```
+
+Bounce Rate
+```{r}
+date_wise$daily_bouncerate <- (date_wise$daily_bounces / date_wise$daily_visits) * 100
+ggplot(date_wise,aes(date,daily_bouncerate)) + geom_line() +
+theme_economist(dkpanel=TRUE)+
+labs(title = "Daily Bounce Rate Trend",
+     subtitle = "Bounce Rate = Bounces / Visits ",
+    x = "Date",
+    y = "Daily Bounce Rate in %") +
+geom_smooth()
+```
+
+```{r}
+ggplot(date_wise,aes(date,daily_transactionRevenue)) + geom_line() +
+theme_economist(dkpanel=TRUE) +
+labs(title = "Time Series of Daily Transaction Revenue",
+     #subtitle = "Bounce Rate = Bounces / Visits ",
+    x = "Date",
+    y = "Daily Transaction Revenue") +
+geom_smooth() -> p1
+#plot_grid(p1)
+```
+
+```{r}
+#Note: I have not included reordering of x in this function. First of all, I don't want to reorder the workday and month plots.
+#Second: Manual reordering gave me the opportunity to order the Revenues in the same order as first plot (descreasing sessions). See for instance Channel Grouping.
+#The adjusted functions to display plots with flipped x and y (see section 2.4.2 the source/medium dimension) includes reordering.
+
+plotSessions <- function(dataframe, factorVariable, topN=10) {
+    var_col <- enquo(factorVariable)
+    dataframe %>% count(!!var_col) %>% top_n(topN, wt=n) %>%
+    ggplot(aes_(x=var_col, y=~n, fill=var_col)) +
+    geom_bar(stat='identity')+
+    scale_y_continuous(labels=comma)+
+    labs(x="", y="number of sessions")
+    #+theme(legend.position="none")
+    }
+
+#also creating a function to plot transactionRevenue for a factorvariable
+plotRevenue <- function(dataframe, factorVariable, topN=10) {
+    var_col <- enquo(factorVariable)
+    dataframe %>% group_by(!!var_col) %>% summarize(rev=sum(transactionRevenue)) %>% filter(rev>0) %>% top_n(topN, wt=rev) %>% ungroup() %>%
+    ggplot(aes_(x=var_col, y=~rev, fill=var_col)) +
+    geom_bar(stat='identity')+
+    scale_y_continuous(labels=comma)+
+    labs(x="", y="Revenues (USD)")
+    #+theme(legend.position="none")
+    }
+```
+
+```{r}
+gtrain$transactionRevenue[is.na(gtrain$transactionRevenue)] <- 0
+```
+
+```{r}
+gtrain$weekday <- wday(gtrain$date, label=TRUE)
+#date_wise$weekday <- wday(date_wise$date, label=TRUE)
+#gtest$weekday <- wday(test$date, label=TRUE)
+str(gtrain$weekday)
+```
+
+```{r}
+options(repr.plot.height=4)
+w1 <- plotSessions(gtrain, weekday)
+w2 <- plotRevenue(gtrain, weekday)
+grid.arrange(w1, w2)
+```
+
+```{r}
+options(repr.plot.height=4)
+
+gtrain$month <- month(gtrain$date, label=TRUE)
+#test$month <- month(test$date, label=TRUE)
+
+m1 <- plotSessions(gtrain, month, 12)
+m2 <- plotRevenue(gtrain, month, 12)
+grid.arrange(m1, m2)
+```
+
+```{r}
+options(repr.plot.height=6)
+
+#adding reordering of x manually
+sessionOrder <- gtrain %>% count(channelGrouping) %>% top_n(10, wt=n) %>% arrange(desc(n))
+sessionOrder <- sessionOrder$channelGrouping
+
+c1 <- plotSessions(gtrain, channelGrouping) + scale_x_discrete(limits=sessionOrder)
+c2 <- plotRevenue(gtrain, channelGrouping) + scale_x_discrete(limits=sessionOrder)
+grid.arrange(c1,c2)
+```
+
+```{r}
+options(repr.plot.height=5)
+d1 <- plotSessions(gtrain, deviceCategory)
+d2 <- plotRevenue(gtrain, deviceCategory)
+grid.arrange(d1,d2)
+```
+
+```{r}
+options(repr.plot.height=5)
+
+sessionOrder <- gtrain %>% filter(operatingSystem != "(not set)") %>% count(operatingSystem) %>% top_n(7, wt=n) %>% arrange(desc(n))
+sessionOrder <- sessionOrder$operatingSystem
+
+o1 <- plotSessions(gtrain %>% filter(operatingSystem != "(not set)"), operatingSystem, 7) + scale_x_discrete(limits=sessionOrder)
+o2 <- plotRevenue(gtrain, operatingSystem) + scale_x_discrete(limits=sessionOrder)
+#grid.arrange(o1, o2)
+```
+
+```{r}
+options(repr.plot.height=5)
+
+d1 <- plotSessions(gtrain, browser)
+d2 <- plotRevenue(gtrain, browser)
+d1
+#grid.arrange(d1, d2)
+```
+
+```{r}
+options(repr.plot.height=4)
+#sessions with more than 28 pageviews all have frequencies of less than 1,000. Since these are hardly visible, I am excluding them.
+#excluding 100 pageview NAs
+
+p1 <- gtrain %>% filter(!is.na(gtrain$pageviews) & pageviews <=28) %>% 
+ggplot(aes(x=pageviews)) +
+    geom_histogram(fill='lightblue', binwidth=1) +
+    scale_y_continuous(breaks=seq(0, 500000, by=100000), label=comma) +
+    scale_x_continuous(breaks=seq(0, 28, by=5)) +
+    coord_cartesian(x=c(0,28))
+
+p2 <- gtrain %>% filter(!is.na(gtrain$pageviews) & pageviews <=28) %>% group_by(pageviews) %>%
+    ggplot(aes(x=pageviews, y=transactionRevenue)) +
+    geom_bar(stat='summary', fun.y = "sum", fill='lightblue') +
+    scale_x_continuous(breaks=seq(0, 28, by=5)) +
+    coord_cartesian(x=c(0,28)) + labs(y="sum of revenues")
+grid.arrange(p1, p2)
+```
+```{r}
+gtrain %>% filter(!is.na(gtrain$pageviews) & pageviews <=28 & transactionRevenue>0) %>% 
+ggplot(aes(x=pageviews)) +
+    geom_histogram(fill='light blue', binwidth=1) +
+    scale_x_continuous(breaks=seq(0, 28, by=5)) +
+    coord_cartesian(x=c(0,28)) +
+    labs(y='number of session with transaction revenue')
+```
+
+
+```{r}
+p1 <- gtrain %>% filter(!is.na(gtrain$pageviews) & pageviews <=28 & transactionRevenue>0) %>% group_by(pageviews) %>%
+    ggplot(aes(x=pageviews, y=transactionRevenue)) +
+    geom_bar(stat='summary', fun.y = "mean", fill='blue') +
+    scale_x_continuous(breaks=seq(0, 28, by=5)) +
+    coord_cartesian(x=c(0,28)) + labs(y="mean of revenues") +
+    geom_label(stat = "count", aes(label = ..count..), y=0, size=2)
+p2 <- gtrain %>% filter(!is.na(gtrain$pageviews) & pageviews <=28 & transactionRevenue>0) %>% group_by(pageviews) %>%
+    ggplot(aes(x=pageviews, y=transactionRevenue)) +
+    geom_bar(stat='summary', fun.y = "median", fill='blue') +
+    scale_x_continuous(breaks=seq(0, 28, by=5)) +
+    coord_cartesian(x=c(0,28)) + labs(y="median of revenues") +
+    geom_label(stat = "count", aes(label = ..count..), y=0, size=2)
+grid.arrange(p1, p2)
+```
+
+```{r}
+gtrain$transaction <- ifelse(gtrain$transactionRevenue > 0, 1, 0)
+
+gtrain %>% filter(!is.na(gtrain$pageviews) & pageviews <=100) %>% group_by(pageviews) %>%
+summarize('sessions'= n(), 'transactions'= sum(transaction), 'pctTransactions'=round(x=((transactions/sessions)*100),digits=1)) %>%
+    ggplot(aes(x=pageviews, y=pctTransactions)) +
+    geom_bar(stat='identity', fill='blue') +
+    scale_x_continuous(breaks=seq(0, 100, by=5)) +
+    geom_smooth()
+```

@@ -1,0 +1,86 @@
+---
+title: "Linear Mixed Model+XGBoost Regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(lme4)
+library(xgboost)
+library(lubridate)
+library(countrycode)
+library(highcharter)
+library(magrittr)
+library(tidyverse)
+library(readr)
+```
+
+```{r}
+tr <- read.csv("../data/train_new.csv")
+```
+
+```{r}
+tr <- tr[,-1]
+tr <- tr[,-14]
+summary(tr$transactionRevenue)
+```
+
+```{r}
+m_lmm0 <- glmer(transactionRevenue ~ (1|fullVisitorId), data = tr)
+
+bg_var <- summary(m_lmm0)$varcor$fullVisitorId[1]
+resid_var <- attr(summary(m_lmm0)$varcor, "sc")^2
+
+summary(m_lmm0)
+```
+
+```{r}
+m_lmm1 <- update(m_lmm0, transactionRevenue ~ pageviews + (1|fullVisitorId))
+m_lmm2 <- update(m_lmm0, transactionRevenue ~ pageviews + hits + (1|fullVisitorId))
+m_lmm3 <- update(m_lmm0, transactionRevenue ~ pageviews + hits + visitNumber + (1|fullVisitorId))
+m_lmm4 <- update(m_lmm0, transactionRevenue ~ pageviews + hits + visitNumber + channelGrouping + (1|fullVisitorId))
+m_lmm5 <- update(m_lmm0, transactionRevenue ~ pageviews + hits + visitNumber + channelGrouping + browser + (1|fullVisitorId))
+m_lmm6 <- update(m_lmm0, transactionRevenue ~ pageviews + hits + visitNumber + channelGrouping + browser + operatingSystem + (1|fullVisitorId))
+m_lmm7 <- update(m_lmm0, transactionRevenue ~ pageviews + hits + visitNumber + channelGrouping + browser + operatingSystem + country + (1|fullVisitorId))
+
+anova(m_lmm0, m_lmm1, m_lmm2, m_lmm3, m_lmm4, m_lmm5, m_lmm6, m_lmm7)
+```
+
+```{r}
+pred_lmm <- predict(m_lmm7)
+RMSE(tr$transactionRevenue, pred_lmm)
+```
+
+```{r}
+te <- read.csv("../data/test_new.csv")
+```
+
+```{r}
+RMSE(te$transactionRevenue, pred_lmm)
+```
+
+```{r}
+train_new<-read_csv('../data/train_new.csv')
+test_new<-read_csv("../data/test_new.csv")
+
+paid <- train_new[train_new$revenue_convert == 1,]
+paidtest <- test_new[test_new$revenue_convert == 1,]
+
+xgbmodel <- model.matrix(transactionRevenue ~ .-X1-transactionRevenue-fullVisitorId-visitId-sessionId, data = paid)
+xgbtest <- model.matrix(transactionRevenue ~ .-X1-transactionRevenue-fullVisitorId-visitId-sessionId, data = paidtest)
+
+xgb.final <- xgboost(data = xgbmodel, 
+               label = paid$transactionRevenue, 
+               eta = 0.01,
+               max_depth = 4, 
+               nrounds = 1000,
+               eval_metric = "rmse",
+               objective = "reg:linear"
+)
+pred.xgb <- predict(xgb.final, newdata = xgbtest)
+sqrt(mean((paidtest$transactionRevenue - pred.xgb)^2))
+```

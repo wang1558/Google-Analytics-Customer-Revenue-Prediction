@@ -1,0 +1,132 @@
+---
+title: "Classification Models"
+author: "Sitong Liu"
+date: "5/2/2019"
+output: html_document
+---
+
+```{r}
+library(data.table)
+library(caret)
+library(readr)
+library(dplyr)
+```
+
+```{r}
+gtrain <- read_csv("../data/gtrain.csv")
+revenue_convert<-0
+gtrain <- data.frame(gtrain,revenue_convert)
+gtrain$revenue_convert[gtrain$transactionRevenue > 0]<-1
+
+train_data_Y<-gtrain[gtrain$revenue_convert==1,]
+train_data_N<-gtrain[gtrain$revenue_convert==0,]
+sample_size_Y <- floor(0.75*nrow(train_data_Y))
+sample_size_N <- floor(0.75*nrow(train_data_N))
+set.seed(222)
+train.ind_Y <- sample(seq_len(nrow(train_data_Y)), size = sample_size_Y)
+train.ind_N <- sample(seq_len(nrow(train_data_N)), size = sample_size_N)
+train_Y <- train_data_Y[train.ind_Y,]
+train_N <- train_data_N[train.ind_N,]
+train_sample_N<-sample_n(train_N,10*nrow(train_Y))
+#test_Y <- train_data_Y[-train.ind_Y,]
+#test_N <- train_data_N[-train.ind_N,]
+#test_sample_N <- sample_n(test_N, nrow(test_Y))
+train_new <- rbind(train_Y,train_sample_N)
+#test_new <- rbind(test_Y,test_sample_N)
+```
+
+```{r}
+test_new<-read_csv("../data/test_new.csv")
+#train_new<-read_csv('../data/train_new.csv')
+# train_new$channelGrouping<-as.factor(train_new$channelGrouping)
+# train_new$operatingSystem<-as.factor(train_new$operatingSystem)
+# 
+# test_new$channelGrouping<-as.factor(test_new$channelGrouping)
+# test_new$operatingSystem<-as.factor(test_new$operatingSystem)
+
+glm.fit<- glm(revenue_convert~.-X1-transactionRevenue-fullVisitorId-visitId-sessionId-country-operatingSystem, data =train_new , family = binomial)
+summary(glm.fit)
+coef(glm.fit)
+glm.probs <- predict(glm.fit,test_new,type="response")
+# test the predictions and the real data
+glm.pred <- rep("0",nrow(test_new))
+glm.pred[glm.probs>0.5] = "1"
+conf<-table(glm.pred, test_new$revenue_convert)
+
+log.acc<-(conf[1,1]+conf[2,2])/sum(conf[,])
+log.acc
+log.prec <- conf[2,2]/sum(conf[2,])
+log.prec
+# Recall (true pos/true pos + false neg)
+log.rec <- conf[2,2]/sum(conf[,2])
+log.rec
+# F1 Score
+log.f1 <- 2*(log.rec*log.prec)/(log.rec+log.prec)
+log.f1
+```
+
+```{r}
+grid_default <- expand.grid(
+  nrounds = 1000,
+  max_depth = 10,
+  eta = 0.3,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+xgbtree <- train(factor(revenue_convert) ~ .-X1-transactionRevenue-fullVisitorId-visitId-sessionId,
+                data = train_new,
+                tuneGrid = grid_default,
+                method = "xgbTree",
+                trControl = trainControl(method = "cv"))
+xgb.pred <- predict(xgbtree, newdata = test_new)
+conf = table(xgb.pred, test_new$revenue_convert)
+xgb.acc<-(conf[1,1]+conf[2,2])/sum(conf[,])
+xgb.acc
+xgb.prec <- conf[2,2]/sum(conf[2,])
+xgb.prec
+# Recall (true pos/true pos + false neg)
+xgb.rec <- conf[2,2]/sum(conf[,2])
+xgb.rec
+# F1 Score
+xgb.f1 <- 2*(xgb.rec*xgb.prec)/(xgb.rec+xgb.prec)
+xgb.f1
+xgbtree
+```
+
+```{r}
+library(randomForest)
+set.seed(100)
+#memory.limit(100000)
+#train_new<-read_csv("train_new.csv")
+train_new$revenue_convert<-as.factor(train_new$revenue_convert)
+test_new$revenue_convert<-as.factor(test_new$revenue_convert)
+model_randomforest<-randomForest(revenue_convert~.-X1-transactionRevenue-fullVisitorId-visitId-sessionId,data =train_new, mtry=5,importance=TRUE, type='classification',na.action = na.pass) 
+print(model_randomforest)
+
+#test_new<-read_csv("test_new.csv")
+pred <- predict(model_randomforest, test_new)
+
+conf <- table(pred, test_new$revenue_convert,dnn=c("Prediction", "Actual"))
+rf.acc<-(conf[1,1]+conf[2,2])/sum(conf[,])
+rf.acc
+```
+
+```{r}
+# Precision (true pos/true pos + false pos)
+prec <- conf[2,2]/sum(conf[2,])
+prec
+# Recall (true pos/true pos + false neg)
+rec <- conf[2,2]/sum(conf[,2])
+rec
+# F1 Score
+f1 <- 2*(rec*prec)/(rec+prec)
+f1
+
+eval.sum <- data.frame(method = c("RF", "Logit", "Xgb"),
+                       accuracy = c(rf.acc, log.acc, xgb.acc),
+                       precision = c(prec, log.prec, xgb.prec),
+                       recall = c(rec, log.rec, xgb.rec),
+                       f1score = c(f1, log.f1, xgb.f1))
+```

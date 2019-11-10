@@ -1,0 +1,125 @@
+---
+title: "Google Data Process"
+author: "Runjie Lyu"
+date: "5/1/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+```{r}
+setwd("~/ga-customer-revenue-prediction")
+gtrain <- read_csv("train.min.csv")
+#gtest <- read_csv("test.min.csv")
+```
+
+```{r}
+gtrain$transactionRevenue <- expm1(gtrain$transactionRevenue)/1000000
+```
+
+```{r}
+gtrain$date <- as.Date(as.character(gtrain$date), format='%Y%m%d')
+
+# convert visitStartTime to POSIXct
+gtrain$visitStartTime <- as_datetime(gtrain$visitStartTime)
+```
+
+```{r}
+drop <- c("isMobile", "deviceCategory", "continent", "subContinent", "region", "metro", "city", "networkDomain", "visits", "bounces", "newVisits", "campaign", "source", "medium", "keyword", "isTrueDirect", "referralPath", "adContent", "adwordsClickInfo.page", "adwordsClickInfo.slot", "adwordsClickInfo.gclId", "adwordsClickInfo.adNetworkType", "adwordsClickInfo.isVideoAd")
+
+gtrain_ts <- gtrain %>% select(-drop)
+summary(gtrain_ts)
+```
+
+```{r}
+gtrain_ts <- gtrain_ts %>%
+mutate_if(is.character, factor)
+```
+
+```{r}
+#Label encoding
+gtrain_ts <- gtrain_ts %>% 
+  mutate_if(is.factor, as.integer) %>% 
+  glimpse()
+```
+
+```{r}
+gtrain_ts[is.na(gtrain_ts)] <- 0
+summary(gtrain_ts)
+#write.csv(gtrain_ts,"gtrain_ts.csv")
+```
+
+Split gtrain to train and test 
+```{r}
+gtrain$transactionRevenue <- log1p(gtrain$transactionRevenue*1000000)
+gtrain <- gtrain %>% select(-drop)
+```
+
+```{r}
+gtrain <- gtrain %>%
+  mutate_if(is.character, factor)
+gtrain <- gtrain %>% 
+  mutate_if(is.factor, as.integer)
+
+summary(gtrain)
+```
+
+```{r}
+gtrain[is.na(gtrain)] <- 0
+summary(gtrain)
+```
+
+```{r}
+revenue_convert<-0
+gtrain<-data.frame(gtrain,revenue_convert)
+gtrain$revenue_convert[gtrain$transactionRevenue!=0]<-1
+```
+
+```{r}
+gtrain_Y<-gtrain[gtrain$revenue_convert==1,]
+gtrain_N<-gtrain[gtrain$revenue_convert==0,]
+```
+
+```{r}
+smp_size_Y <- floor(0.75*nrow(gtrain_Y))
+smp_size_N <- floor(0.75*nrow(gtrain_N))
+
+set.seed(123)
+train.ind_Y <- sample(seq_len(nrow(gtrain_Y)), size = smp_size_Y)
+train.ind_N <- sample(seq_len(nrow(gtrain_N)), size = smp_size_N)
+
+train_Y <- gtrain_Y[train.ind_Y,]
+train_N <- gtrain_N[train.ind_N,]
+
+test_Y <-gtrain_Y[-train.ind_Y,]
+test_N<-gtrain_N[-train.ind_N,]
+
+train_new<-rbind(train_Y,train_N)
+test_new<-rbind(test_Y,test_N)
+
+write.csv(train_new, "train_new.csv")
+write.csv(test_new, "test_new.csv")
+```
+
+```{r}
+gtrain3 <- gtrain
+```
+
+```{r}
+gtrain[is.na(gtrain)] <- 0
+write.csv(gtrain,"gtrain.csv")
+```
+
+```{r}
+row.na <- apply(gtrain3[,"transactionRevenue"],1,function(x){any(is.na(x))})
+gtrain3 <- gtrain3[!row.na, ]
+gtrain3[is.na(gtrain3)] <- 0
+write.csv(gtrain3,"gtrain3.csv")
+```
